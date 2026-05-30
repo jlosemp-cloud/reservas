@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reservas - Peluquería Premium</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #1A237E; --turq: #00BFA5; }
+        body { font-family: 'Segoe UI', sans-serif; background: #F8F9FB; margin: 0; padding: 15px; display: flex; justify-content: center; }
+        .card { background: white; padding: 25px; border-radius: 25px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h1 { color: var(--primary); text-align: center; font-size: 24px; }
+        label { display: block; margin-top: 20px; font-weight: bold; color: #444; }
+        input { width: 100%; padding: 12px; margin-top: 8px; border: 1px solid #DDD; border-radius: 10px; box-sizing: border-box; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+        .btn-time { padding: 12px; border: 1px solid #EEE; border-radius: 10px; text-align: center; cursor: pointer; background: white; transition: 0.3s; }
+        .btn-time.busy { background: #F5F5F5; color: #CCC; text-decoration: line-through; cursor: not-allowed; }
+        .btn-time.selected { background: var(--primary); color: white; border-color: var(--primary); }
+        .btn-reserve { background: var(--primary); color: white; padding: 18px; border: none; border-radius: 15px; width: 100%; margin-top: 30px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .btn-reserve:disabled { background: #CCC; }
+        #msg-status { color: #E91E63; text-align: center; font-weight: bold; margin-top: 20px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>💈 Reserva tu Cita</h1>
+        <label>Nombre y Apellidos</label>
+        <input type="text" id="name" placeholder="Tu nombre...">
+        <label>Teléfono</label>
+        <input type="tel" id="phone" placeholder="Tu móvil...">
+        <label>Día de la Cita</label>
+        <input type="date" id="date">
+        <p id="msg-status"></p>
+        <label id="lbl-time">Horas Libres</label>
+        <div class="grid" id="time-grid"></div>
+        <button class="btn-reserve" id="btn-go" disabled>SOLICITAR CITA</button>
+    </div>
+
+    <script>
+        const SB_URL = "https://adtybjjcugjtgimacoyj.supabase.co";
+        const SB_KEY = "TU_ANON_KEY_AQUI"; // REEMPLAZA CON TU CLAVE
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+
+        const hours = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00"];
+        let selectedTime = null;
+
+        const dateInput = document.getElementById('date');
+        const msgStatus = document.getElementById('msg-status');
+        const grid = document.getElementById('time-grid');
+        
+        dateInput.min = new Date().toISOString().split('T')[0];
+
+        dateInput.onchange = async () => {
+            const date = dateInput.value;
+            grid.innerHTML = "Cargando...";
+            selectedTime = null;
+            document.getElementById('btn-go').disabled = true;
+            msgStatus.style.display = "none";
+
+            // 1. Lógica de Domingos (Automático)
+            const dayOfWeek = new Date(date).getUTCDay();
+            if (dayOfWeek === 0) {
+                msgStatus.innerText = "Cerrado por descanso dominical.";
+                msgStatus.style.display = "block";
+                grid.innerHTML = "";
+                return;
+            }
+
+            // 2. Verificar Vacaciones en DB
+            const { data: vaca } = await _supabase.from('vacations').select('*').eq('date', date);
+            if(vaca && vaca.length > 0) { 
+                msgStatus.innerText = "Cerrado por festivo o vacaciones.";
+                msgStatus.style.display = "block"; 
+                grid.innerHTML = ""; 
+                return; 
+            }
+
+            // 3. Verificar Citas Ocupadas y Bloqueos del Peluquero
+            const { data: appts } = await _supabase.from('appointments').select('time').eq('date', date);
+            const busy = appts ? appts.map(a => a.time) : [];
+
+            // 4. Dibujar Grid de Horas
+            grid.innerHTML = "";
+            hours.forEach(h => {
+                const isBusy = busy.includes(h);
+                const div = document.createElement('div');
+                div.className = `btn-time ${isBusy ? 'busy' : ''}`;
+                div.innerText = h;
+                if(!isBusy) {
+                    div.onclick = () => {
+                        document.querySelectorAll('.btn-time').forEach(b => b.classList.remove('selected'));
+                        div.classList.add('selected');
+                        selectedTime = h;
+                        document.getElementById('btn-go').disabled = false;
+                    };
+                }
+                grid.appendChild(div);
+            });
+        };
+
+        document.getElementById('btn-go').onclick = async () => {
+            const name = document.getElementById('name').value;
+            const phone = document.getElementById('phone').value;
+            const date = dateInput.value;
+            if(!name || !phone || !date || !selectedTime) return;
+
+            const { error } = await _supabase.from('appointments').insert([
+                { date: date, time: selectedTime, client_name: name, phone: phone, service: "WEB" }
+            ]);
+
+            if(!error) {
+                alert("¡Cita solicitada con éxito!");
+                window.location.reload();
+            } else {
+                alert("Error: " + error.message);
+            }
+        };
+    </script>
+</body>
+</html>
